@@ -48,6 +48,15 @@ type CompressionStats struct {
 	OutputFile       string  `json:"outputFile"`
 }
 
+type UploadResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	Data    struct {
+		FilePaths []string `json:"filePaths,omitempty"`
+		FilePath  string   `json:"filePath,omitempty"`
+	} `json:"data,omitempty"`
+}
+
 func main() {
 	// Serve embedded frontend files
 	frontendFS, err := fs.Sub(embeddedFrontend, "frontend")
@@ -121,7 +130,7 @@ func handleCompress(w http.ResponseWriter, r *http.Request) {
 	sendResponse(w, true, "Compression completed successfully", stats)
 }
 
-func handleDecompress_old(w http.ResponseWriter, r *http.Request) {
+func handleDecompress(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -140,53 +149,19 @@ func handleDecompress_old(w http.ResponseWriter, r *http.Request) {
 
 	// Generate output directory if not provided
 	if req.OutputDir == "" {
-		baseName := strings.TrimSuffix(filepath.Base(req.Archive), ".zst")
-		req.OutputDir = baseName + "_extracted"
-	}
-
-	fileCount, err := decompressFile(req.Archive, req.OutputDir)
-	if err != nil {
-		sendResponse(w, false, fmt.Sprintf("Decompression failed: %v", err), nil)
-		return
-	}
-
-	data := map[string]interface{}{
-		"extractedFiles": fileCount,
-		"outputDir":      req.OutputDir,
-	}
-
-	sendResponse(w, true, fmt.Sprintf("Decompression completed. Extracted %d files to %s", fileCount, req.OutputDir), data)
-}
-func handleDecompress(w http.ResponseWriter, r *http.Request) {
-	var req DecompressRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		sendResponse(w, false, "Invalid request format", nil)
-		return
-	}
-
-	if req.Archive == "" {
-		sendResponse(w, false, "No archive file specified", nil)
-		return
-	}
-
-	// Generate output directory if not provided
-	if req.OutputDir == "" {
-		// Get just the filename without path and extension
 		baseName := filepath.Base(req.Archive)
 		if strings.HasSuffix(baseName, ".zst") {
 			baseName = strings.TrimSuffix(baseName, ".zst")
 		}
-		// Create a simple, safe output directory name
-		req.OutputDir = sanitizePath(baseName) + "_extracted"
+		req.OutputDir = sanitizeDirectoryName(baseName) + "_extracted"
 	} else {
-		// Sanitize the provided output directory
-		req.OutputDir = sanitizePath(req.OutputDir)
+		req.OutputDir = sanitizeDirectoryName(req.OutputDir)
 	}
 
-	// Ensure we're using a simple directory name without any path components
+	// Ensure we're using a simple directory name without path components
 	req.OutputDir = filepath.Base(req.OutputDir)
 
-	fileCount, err := decompressFile(req.Archive, req.OutputDir)
+	fileCount, outputPath, err := decompressFile(req.Archive, req.OutputDir)
 	if err != nil {
 		sendResponse(w, false, fmt.Sprintf("Decompression failed: %v", err), nil)
 		return
@@ -194,34 +169,10 @@ func handleDecompress(w http.ResponseWriter, r *http.Request) {
 
 	data := map[string]interface{}{
 		"extractedFiles": fileCount,
-		"outputDir":      req.OutputDir,
+		"outputDir":      outputPath,
 	}
 
 	sendResponse(w, true, fmt.Sprintf("Decompression completed. Extracted %d files to %s", fileCount, req.OutputDir), data)
-}
-func handleListFiles(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	dirPath := r.URL.Query().Get("path")
-	if dirPath == "" {
-		dirPath, _ = os.Getwd()
-	}
-
-	files, err := listDirectory(dirPath)
-	if err != nil {
-		sendResponse(w, false, fmt.Sprintf("Failed to list directory: %v", err), nil)
-		return
-	}
-
-	data := map[string]interface{}{
-		"currentPath": dirPath,
-		"files":       files,
-	}
-
-	sendResponse(w, true, "Directory listed successfully", data)
 }
 
 func compressFiles(files []string, outputFile string, level int) (*CompressionStats, error) {
@@ -283,7 +234,7 @@ func addToTar(tarWriter *tar.Writer, filePath string, totalSize *int64) error {
 			return err
 		}
 
-		// Use relative path
+		// Use relative path and sanitize it for cross-platform compatibility
 		header.Name = path
 		if filePath != path {
 			relPath, err := filepath.Rel(filepath.Dir(filePath), path)
@@ -293,7 +244,8 @@ func addToTar(tarWriter *tar.Writer, filePath string, totalSize *int64) error {
 			header.Name = filepath.Join(filepath.Base(filePath), relPath)
 		}
 
-		header.Name = filepath.ToSlash(header.Name)
+		// Convert to forward slashes for tar format and sanitize
+		header.Name = sanitizeTarPath(filepath.ToSlash(header.Name))
 
 		// Write header
 		if err := tarWriter.WriteHeader(header); err != nil {
@@ -320,27 +272,37 @@ func addToTar(tarWriter *tar.Writer, filePath string, totalSize *int64) error {
 	})
 }
 
-func decompressFile(archiveFile, outputDir string) (int, error) {
+func decompressFile(archiveFile, outputDir string) (int, string, error) {
 	// Get the current working directory
 	cwd, err := os.Getwd()
 	if err != nil {
-		return 0, fmt.Errorf("failed to get current directory: %v", err)
+		return 0, "", fmt.Errorf("failed to get current directory: %v", err)
 	}
 
 	// Create the full output path in the current directory
 	fullOutputDir := filepath.Join(cwd, outputDir)
 
+	// Remove the directory if it already exists
+	if _, err := os.Stat(fullOutputDir); err == nil {
+		os.RemoveAll(fullOutputDir)
+	}
+
+	// Create the output directory
+	if err := os.MkdirAll(fullOutputDir, 0755); err != nil {
+		return 0, "", fmt.Errorf("failed to create output directory: %v", err)
+	}
+
 	// Open archive file
 	file, err := os.Open(archiveFile)
 	if err != nil {
-		return 0, fmt.Errorf("failed to open archive: %v", err)
+		return 0, "", fmt.Errorf("failed to open archive: %v", err)
 	}
 	defer file.Close()
 
 	// Create zstd decoder
 	decoder, err := zstd.NewReader(file)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create zstd decoder: %v", err)
+		return 0, "", fmt.Errorf("failed to create zstd decoder: %v", err)
 	}
 	defer decoder.Close()
 
@@ -356,114 +318,52 @@ func decompressFile(archiveFile, outputDir string) (int, error) {
 			break
 		}
 		if err != nil {
-			return 0, fmt.Errorf("failed to read tar header: %v", err)
+			return 0, "", fmt.Errorf("failed to read tar header: %v", err)
 		}
 
-		targetPath := filepath.Join(fullOutputDir, header.Name)
+		// Sanitize the header name to prevent path traversal and invalid paths
+		cleanName := sanitizeExtractPath(header.Name)
+		if cleanName == "" {
+			continue // Skip invalid paths
+		}
+
+		targetPath := filepath.Join(fullOutputDir, cleanName)
+
+		// Ensure the target path is within the output directory (prevent path traversal)
+		if !strings.HasPrefix(targetPath, filepath.Clean(fullOutputDir)+string(os.PathSeparator)) {
+			continue // Skip paths that try to escape the output directory
+		}
 
 		// Ensure target directory exists
 		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
-			return 0, fmt.Errorf("failed to create directory: %v", err)
+			return 0, "", fmt.Errorf("failed to create directory: %v", err)
 		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(targetPath, os.FileMode(header.Mode)); err != nil {
-				return 0, fmt.Errorf("failed to create directory %s: %v", targetPath, err)
+				return 0, "", fmt.Errorf("failed to create directory %s: %v", targetPath, err)
 			}
 
 		case tar.TypeReg:
 			outFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
 			if err != nil {
-				return 0, fmt.Errorf("failed to create file %s: %v", targetPath, err)
+				return 0, "", fmt.Errorf("failed to create file %s: %v", targetPath, err)
 			}
 
 			_, err = io.Copy(outFile, tarReader)
 			outFile.Close()
 			if err != nil {
-				return 0, fmt.Errorf("failed to extract file %s: %v", targetPath, err)
+				return 0, "", fmt.Errorf("failed to extract file %s: %v", targetPath, err)
 			}
 
 			fileCount++
 		}
 	}
 
-	return fileCount, nil
+	return fileCount, fullOutputDir, nil
 }
 
-func listDirectory(dirPath string) ([]map[string]interface{}, error) {
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		return nil, err
-	}
-
-	var files []map[string]interface{}
-
-	// Add parent directory entry if not root
-	if dirPath != "/" && dirPath != "." {
-		parent := filepath.Dir(dirPath)
-		files = append(files, map[string]interface{}{
-			"name":    "..",
-			"path":    parent,
-			"isDir":   true,
-			"size":    0,
-			"modTime": "",
-		})
-	}
-
-	for _, entry := range entries {
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-
-		fullPath := filepath.Join(dirPath, entry.Name())
-		files = append(files, map[string]interface{}{
-			"name":    entry.Name(),
-			"path":    fullPath,
-			"isDir":   entry.IsDir(),
-			"size":    info.Size(),
-			"modTime": info.ModTime().Format("2006-01-02 15:04:05"),
-		})
-	}
-
-	return files, nil
-}
-
-func sendResponse(w http.ResponseWriter, success bool, message string, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	response := Response{
-		Success: success,
-		Message: message,
-		Data:    data,
-	}
-	json.NewEncoder(w).Encode(response)
-}
-
-func formatSize(size int64) string {
-	const unit = 1024
-	if size < unit {
-		return fmt.Sprintf("%d B", size)
-	}
-	div, exp := int64(unit), 0
-	for n := size / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
-}
-
-// Add these structs
-type UploadResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-	Data    struct {
-		FilePaths []string `json:"filePaths,omitempty"`
-		FilePath  string   `json:"filePath,omitempty"`
-	} `json:"data,omitempty"`
-}
-
-// Add these handler functions
 func handleUpload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -577,25 +477,6 @@ func handleUploadArchive(w http.ResponseWriter, r *http.Request) {
 	sendUploadResponse(w, true, "Archive uploaded successfully", data)
 }
 
-func sendUploadResponse(w http.ResponseWriter, success bool, message string, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	response := UploadResponse{
-		Success: success,
-		Message: message,
-	}
-
-	if data != nil {
-		if filePaths, ok := data.(map[string]interface{})["filePaths"]; ok {
-			response.Data.FilePaths = filePaths.([]string)
-		}
-		if filePath, ok := data.(map[string]interface{})["filePath"]; ok {
-			response.Data.FilePath = filePath.(string)
-		}
-	}
-
-	json.NewEncoder(w).Encode(response)
-}
-
 func handleDownload(w http.ResponseWriter, r *http.Request) {
 	filePath := r.URL.Query().Get("file")
 	if filePath == "" {
@@ -615,22 +496,6 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 
 	// Serve the file
 	http.ServeFile(w, r, filePath)
-}
-
-func sanitizePath(path string) string {
-	// Remove any invalid characters for Windows file paths
-	invalidChars := regexp.MustCompile(`[<>:"|?*]`)
-	path = invalidChars.ReplaceAllString(path, "_")
-
-	// Remove any leading/trailing spaces
-	path = strings.TrimSpace(path)
-
-	// Ensure the path is not empty
-	if path == "" {
-		path = "extracted"
-	}
-
-	return path
 }
 
 func handleDownloadExtracted(w http.ResponseWriter, r *http.Request) {
@@ -712,4 +577,169 @@ func zipDirectory(source, target string) error {
 		_, err = io.Copy(writer, file)
 		return err
 	})
+}
+
+func listDirectory(dirPath string) ([]map[string]interface{}, error) {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var files []map[string]interface{}
+
+	// Add parent directory entry if not root
+	if dirPath != "/" && dirPath != "." {
+		parent := filepath.Dir(dirPath)
+		files = append(files, map[string]interface{}{
+			"name":    "..",
+			"path":    parent,
+			"isDir":   true,
+			"size":    0,
+			"modTime": "",
+		})
+	}
+
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		fullPath := filepath.Join(dirPath, entry.Name())
+		files = append(files, map[string]interface{}{
+			"name":    entry.Name(),
+			"path":    fullPath,
+			"isDir":   entry.IsDir(),
+			"size":    info.Size(),
+			"modTime": info.ModTime().Format("2006-01-02 15:04:05"),
+		})
+	}
+
+	return files, nil
+}
+
+func handleListFiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	dirPath := r.URL.Query().Get("path")
+	if dirPath == "" {
+		dirPath, _ = os.Getwd()
+	}
+
+	files, err := listDirectory(dirPath)
+	if err != nil {
+		sendResponse(w, false, fmt.Sprintf("Failed to list directory: %v", err), nil)
+		return
+	}
+
+	data := map[string]interface{}{
+		"currentPath": dirPath,
+		"files":       files,
+	}
+
+	sendResponse(w, true, "Directory listed successfully", data)
+}
+
+func sendResponse(w http.ResponseWriter, success bool, message string, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	response := Response{
+		Success: success,
+		Message: message,
+		Data:    data,
+	}
+	json.NewEncoder(w).Encode(response)
+}
+
+func sendUploadResponse(w http.ResponseWriter, success bool, message string, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	response := UploadResponse{
+		Success: success,
+		Message: message,
+	}
+
+	if data != nil {
+		if filePaths, ok := data.(map[string]interface{})["filePaths"]; ok {
+			response.Data.FilePaths = filePaths.([]string)
+		}
+		if filePath, ok := data.(map[string]interface{})["filePath"]; ok {
+			response.Data.FilePath = filePath.(string)
+		}
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// Sanitization functions to fix Windows path issues
+func sanitizeDirectoryName(name string) string {
+	// Remove any invalid characters for directory names
+	invalidChars := regexp.MustCompile(`[<>:"|?*\\\/]`)
+	name = invalidChars.ReplaceAllString(name, "_")
+
+	// Remove any leading/trailing spaces and dots
+	name = strings.Trim(name, " .")
+
+	// Ensure the name is not empty
+	if name == "" {
+		name = "extracted"
+	}
+
+	// Limit length to prevent issues
+	if len(name) > 100 {
+		name = name[:100]
+	}
+
+	return name
+}
+
+func sanitizeTarPath(path string) string {
+	// Remove drive letters and leading slashes/backslashes for cross-platform compatibility
+	if len(path) >= 2 && path[1] == ':' {
+		path = path[2:]
+	}
+
+	// Remove leading slashes and backslashes
+	path = strings.TrimLeft(path, "/\\")
+
+	// Replace backslashes with forward slashes
+	path = strings.ReplaceAll(path, "\\", "/")
+
+	// Remove any remaining invalid characters
+	invalidChars := regexp.MustCompile(`[<>:"|?*]`)
+	path = invalidChars.ReplaceAllString(path, "_")
+
+	return path
+}
+
+func sanitizeExtractPath(path string) string {
+	// Remove drive letters and leading slashes/backslashes
+	if len(path) >= 2 && path[1] == ':' {
+		path = path[2:]
+	}
+
+	// Remove leading slashes and backslashes
+	path = strings.TrimLeft(path, "/\\")
+
+	// Skip empty paths or paths with only dots
+	if path == "" || strings.Trim(path, ".") == "" {
+		return ""
+	}
+
+	// Prevent path traversal
+	if strings.Contains(path, "..") {
+		return ""
+	}
+
+	// Replace forward slashes with OS-appropriate separators
+	path = filepath.FromSlash(path)
+
+	// Remove any remaining invalid characters for the current OS
+	if filepath.Separator == '\\' { // Windows
+		invalidChars := regexp.MustCompile(`[<>:"|?*]`)
+		path = invalidChars.ReplaceAllString(path, "_")
+	}
+
+	return path
 }
