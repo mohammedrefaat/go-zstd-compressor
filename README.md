@@ -37,7 +37,7 @@ A web-based file compression and decompression tool using the Zstandard (Zstd) a
 
 ### Steps
 1. Clone the repository:
-```bash
+
 git clone https://github.com/your-username/zstd-compressor.git
 cd zstd-compressor
 
