@@ -1,0 +1,1130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zstd Compressor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+
+        .main-content {
+            padding: 40px;
+        }
+
+        .tabs {
+            display: flex;
+            margin-bottom: 30px;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .tab {
+            flex: 1;
+            padding: 15px 30px;
+            background: #f8f9fa;
+            border: none;
+            cursor: pointer;
+            font-size: 1.1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            color: #6c757d;
+        }
+
+        .tab.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .tab:hover:not(.active) {
+            background: #e9ecef;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .section {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 25px;
+        }
+
+        .section h3 {
+            color: #495057;
+            margin-bottom: 20px;
+            font-size: 1.4rem;
+            border-bottom: 2px solid #dee2e6;
+            padding-bottom: 10px;
+        }
+
+        .file-browser {
+            border: 2px dashed #dee2e6;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            margin-bottom: 20px;
+            min-height: 120px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .file-browser:hover {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.05);
+        }
+
+        .file-browser.dragover {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.1);
+            transform: scale(1.02);
+        }
+
+        .file-list {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 15px;
+            border-bottom: 1px solid #f1f3f4;
+            transition: background 0.2s ease;
+        }
+
+        .file-item:hover {
+            background: #f8f9fa;
+        }
+
+        .file-item:last-child {
+            border-bottom: none;
+        }
+
+        .file-info {
+            display: flex;
+            align-items: center;
+            flex: 1;
+        }
+
+        .file-icon {
+            margin-right: 10px;
+            font-size: 1.2rem;
+        }
+
+        .file-name {
+            font-weight: 500;
+            color: #495057;
+        }
+
+        .file-size {
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+
+        .remove-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 5px 10px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: background 0.2s ease;
+        }
+
+        .remove-btn:hover {
+            background: #c82333;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .slider-container {
+            margin: 15px 0;
+        }
+
+        .slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #dee2e6;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+        }
+
+        .slider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+        }
+
+        .level-display {
+            text-align: center;
+            margin-top: 10px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #dc3545 0%, #fd7e14 100%);
+        }
+
+        .progress-container {
+            margin: 20px 0;
+            display: none;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 10px;
+            background: #e9ecef;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s ease;
+            border-radius: 5px;
+        }
+
+        .status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 8px;
+            font-weight: 500;
+            display: none;
+        }
+
+        .status.success {
+            background: #d1edff;
+            color: #004085;
+            border: 1px solid #b3d7ff;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+            text-align: center;
+        }
+
+        .stat-card h4 {
+            color: #6c757d;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+
+        .stat-card .value {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #495057;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #6c757d;
+            padding: 40px 20px;
+        }
+
+        .empty-state .icon {
+            font-size: 3rem;
+            margin-bottom: 15px;
+        }
+
+        .selection-options {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+            justify-content: center;
+        }
+
+        .selection-btn {
+            padding: 10px 20px;
+            background: #e9ecef;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .selection-btn.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .download-btn {
+            margin-top: 20px;
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                margin: 10px;
+            }
+
+            .main-content {
+                padding: 20px;
+            }
+
+            .tabs {
+                flex-direction: column;
+            }
+
+            .stats {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .selection-options {
+                flex-direction: column;
+            }
+        }
+
+        /* Loading spinner */
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ffffff40;
+            border-radius: 50%;
+            border-top: 2px solid #ffffff;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .upload-status {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🗜️ Zstd Compressor</h1>
+            <p>Portable compression tool with Zstandard algorithm</p>
+        </div>
+
+        <div class="main-content">
+            <div class="tabs">
+                <button class="tab active" data-tab="compress">Compress Files</button>
+                <button class="tab" data-tab="decompress">Decompress Archive</button>
+            </div>
+
+            <!-- Compress Tab -->
+            <div id="compress-tab" class="tab-content active">
+                <div class="section">
+                    <h3>📁 Select Files & Folders</h3>
+                    
+                    <div class="selection-options">
+                        <button class="selection-btn active" data-type="files">Files</button>
+                        <button class="selection-btn" data-type="folder">Folder</button>
+                    </div>
+                    
+                    <div class="file-browser" id="compress-file-browser">
+                        <div>
+                            <p style="font-size: 1.2rem; margin-bottom: 10px;">🗂️ Click to select or drag & drop here</p>
+                            <p style="color: #6c757d;">Supports both files and folders</p>
+                        </div>
+                    </div>
+                    
+                    <input type="file" id="file-input" multiple style="display: none;">
+                    <input type="file" id="folder-input" webkitdirectory style="display: none;">
+                    
+                    <div id="file-list" class="file-list" style="display: none;">
+                        <!-- Selected files will appear here -->
+                    </div>
+
+                    <div id="upload-status" class="upload-status" style="display: none;">
+                        Uploading files to server...
+                    </div>
+                    
+                    <button class="btn btn-secondary" onclick="clearFiles()">Clear All</button>
+                </div>
+
+                <div class="section">
+                    <h3>⚙️ Compression Settings</h3>
+                    <div class="form-group">
+                        <label class="form-label">Output File Name:</label>
+                        <input type="text" id="output-name" class="form-input" placeholder="Leave empty for auto-generation">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Compression Level:</label>
+                        <div class="slider-container">
+                            <input type="range" id="compression-level" class="slider" min="1" max="19" value="3" oninput="updateLevelDisplay(this.value)">
+                            <div id="level-display" class="level-display">Level: 3 (Balanced)</div>
+                        </div>
+                    </div>
+                    
+                    <button class="btn" onclick="compressFiles()" id="compress-btn">🗜️ Compress Files</button>
+                    <button class="btn btn-success download-btn" id="download-btn" style="display: none;">⬇️ Download Compressed File</button>
+                </div>
+            </div>
+
+            <!-- Decompress Tab -->
+            <div id="decompress-tab" class="tab-content">
+                <div class="section">
+                    <h3>📦 Select Archive</h3>
+                    <div class="file-browser" id="decompress-file-browser">
+                        <div>
+                            <p style="font-size: 1.2rem; margin-bottom: 10px;">📦 Click to select .zst archive or drag & drop here</p>
+                            <p style="color: #6c757d;">Choose a .zst file to extract</p>
+                        </div>
+                    </div>
+                    <input type="file" id="archive-input" accept=".zst" style="display: none;">
+                    
+                    <div id="selected-archive" style="display: none;">
+                        <div class="file-item">
+                            <div class="file-info">
+                                <span class="file-icon">📦</span>
+                                <span id="archive-name" class="file-name"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h3>📂 Extract Settings</h3>
+                    <div class="form-group">
+                        <label class="form-label">Output Directory:</label>
+                        <input type="text" id="extract-dir" class="form-input" placeholder="Leave empty for auto-generation">
+                    </div>
+                    
+                    <button class="btn btn-success" onclick="decompressArchive()" id="decompress-btn">📂 Extract Archive</button>
+                    <button class="btn btn-success download-btn" id="download-extracted-btn" style="display: none;" onclick="downloadExtractedFiles()">⬇️ Download Extracted Files</button>
+                </div>
+            </div>
+
+            <!-- Progress and Status -->
+            <div class="progress-container" id="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+            </div>
+
+            <div class="status" id="status"></div>
+
+            <!-- Statistics -->
+            <div id="stats-container" style="display: none;">
+                <div class="stats" id="stats">
+                    <!-- Statistics will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let selectedFiles = [];
+        let selectedArchive = '';
+        let selectionType = 'files'; // 'files' or 'folder'
+        let uploadedFilePaths = [];
+        let lastCompressedFile = '';
+        let lastExtractedDir = '';
+
+        // Initialize the application
+        function init() {
+            setupTabHandlers();
+            setupDragAndDrop();
+            setupFileInputs();
+            updateLevelDisplay(3);
+        }
+
+        // Set up tab switching
+        function setupTabHandlers() {
+            const tabs = document.querySelectorAll('.tab');
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    const tabName = tab.getAttribute('data-tab');
+                    switchTab(tabName);
+                });
+            });
+
+            // Set up selection type buttons
+            const selectionBtns = document.querySelectorAll('.selection-btn');
+            selectionBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    selectionBtns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    selectionType = btn.getAttribute('data-type');
+                });
+            });
+        }
+
+        // Set up drag and drop functionality
+        function setupDragAndDrop() {
+            const compressBrowser = document.getElementById('compress-file-browser');
+            const decompressBrowser = document.getElementById('decompress-file-browser');
+            
+            // Add event listeners for compress browser
+            compressBrowser.addEventListener('dragover', handleDragOver);
+            compressBrowser.addEventListener('dragleave', handleDragLeave);
+            compressBrowser.addEventListener('drop', handleCompressDrop);
+            
+            // Add event listeners for decompress browser
+            decompressBrowser.addEventListener('dragover', handleDragOver);
+            decompressBrowser.addEventListener('dragleave', handleDragLeave);
+            decompressBrowser.addEventListener('drop', handleDecompressDrop);
+        }
+
+        // Set up file input handlers
+        function setupFileInputs() {
+            // File input for compression
+            document.getElementById('file-input').addEventListener('change', function(e) {
+                addFiles(Array.from(e.target.files));
+            });
+            
+            // Folder input for compression
+            document.getElementById('folder-input').addEventListener('change', function(e) {
+                addFiles(Array.from(e.target.files));
+            });
+            
+            // Archive input for decompression
+            document.getElementById('archive-input').addEventListener('change', function(e) {
+                if (e.target.files.length > 0) {
+                    selectedArchive = e.target.files[0];
+                    document.getElementById('archive-name').textContent = e.target.files[0].name;
+                    document.getElementById('selected-archive').style.display = 'block';
+                }
+            });
+
+            // Download button handler
+            document.getElementById('download-btn').addEventListener('click', downloadCompressedFile);
+        }
+
+        function switchTab(tab) {
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelector(`.tab[data-tab="${tab}"]`).classList.add('active');
+            
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.getElementById(`${tab}-tab`).classList.add('active');
+            
+            hideStatus();
+            hideStats();
+            document.getElementById('download-btn').style.display = 'none';
+            document.getElementById('download-extracted-btn').style.display = 'none';
+        }
+
+        function selectFiles() {
+            if (selectionType === 'files') {
+                document.getElementById('file-input').click();
+            } else {
+                document.getElementById('folder-input').click();
+            }
+        }
+
+        function selectArchive() {
+            document.getElementById('archive-input').click();
+        }
+
+        function addFiles(files) {
+            files.forEach(file => {
+                const filePath = file.path || file.webkitRelativePath || file.name;
+                if (!selectedFiles.some(f => f.path === filePath)) {
+                    selectedFiles.push({
+                        name: file.name,
+                        path: filePath,
+                        size: file.size,
+                        type: file.type,
+                        file: file // Store the file object for uploading
+                    });
+                }
+            });
+            updateFileList();
+        }
+
+        function updateFileList() {
+            const fileListContainer = document.getElementById('file-list');
+            
+            if (selectedFiles.length === 0) {
+                fileListContainer.style.display = 'none';
+                return;
+            }
+
+            fileListContainer.style.display = 'block';
+            fileListContainer.innerHTML = '';
+
+            selectedFiles.forEach((file, index) => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                
+                const icon = file.type && file.type.startsWith('image/') ? '🖼️' : 
+                           file.type && file.type.includes('text') ? '📝' : 
+                           file.type && file.type.includes('pdf') ? '📄' : 
+                           file.name.includes('.') ? '📄' : '📁';
+
+                fileItem.innerHTML = `
+                    <div class="file-info">
+                        <span class="file-icon">${icon}</span>
+                        <div>
+                            <div class="file-name">${file.name}</div>
+                            <div class="file-size">${formatSize(file.size)}</div>
+                        </div>
+                    </div>
+                    <button class="remove-btn" onclick="removeFile(${index})">Remove</button>
+                `;
+                
+                fileListContainer.appendChild(fileItem);
+            });
+        }
+
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            updateFileList();
+        }
+
+        function clearFiles() {
+            selectedFiles = [];
+            uploadedFilePaths = [];
+            updateFileList();
+            document.getElementById('upload-status').style.display = 'none';
+            document.getElementById('download-btn').style.display = 'none';
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.currentTarget.classList.add('dragover');
+        }
+
+        function handleDragLeave(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.currentTarget.classList.remove('dragover');
+        }
+
+        function handleCompressDrop(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.currentTarget.classList.remove('dragover');
+            
+            const files = Array.from(e.dataTransfer.files);
+            addFiles(files);
+        }
+        
+        function handleDecompressDrop(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.currentTarget.classList.remove('dragover');
+            
+            const files = Array.from(e.dataTransfer.files);
+            if (files.length > 0 && files[0].name.endsWith('.zst')) {
+                selectedArchive = files[0];
+                document.getElementById('archive-name').textContent = files[0].name;
+                document.getElementById('selected-archive').style.display = 'block';
+            } else {
+                showStatus('Please select a .zst file', 'error');
+            }
+        }
+
+        function updateLevelDisplay(level) {
+            const descriptions = {
+                1: '(Fastest)', 2: '(Fast)', 3: '(Balanced)',
+                4: '(Good)', 5: '(Better)', 6: '(Very Good)',
+                7: '(High)', 8: '(Higher)', 9: '(Very High)',
+                10: '(Maximum Speed)', 11: '(Ultra)', 12: '(Ultra+)',
+                13: '(Extreme)', 14: '(Extreme+)', 15: '(Maximum)',
+                16: '(Ultra Maximum)', 17: '(Insane)', 18: '(Ludicrous)',
+                19: '(Ultimate)'
+            };
+            
+            document.getElementById('level-display').textContent = 
+                `Level: ${level} ${descriptions[level] || ''}`;
+        }
+
+        async function uploadFiles() {
+            if (selectedFiles.length === 0) {
+                return [];
+            }
+
+            const uploadStatus = document.getElementById('upload-status');
+            uploadStatus.style.display = 'block';
+            uploadStatus.textContent = 'Uploading files to server...';
+
+            const formData = new FormData();
+            selectedFiles.forEach((file, index) => {
+                formData.append('files', file.file);
+            });
+
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    uploadStatus.textContent = 'Files uploaded successfully!';
+                    setTimeout(() => {
+                        uploadStatus.style.display = 'none';
+                    }, 2000);
+                    return result.data.filePaths;
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                uploadStatus.textContent = 'Upload failed: ' + error.message;
+                throw error;
+            }
+        }
+
+        async function uploadArchive() {
+            if (!selectedArchive) {
+                return '';
+            }
+
+            const formData = new FormData();
+            formData.append('archive', selectedArchive);
+
+            try {
+                const response = await fetch('/api/upload-archive', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    return result.data.filePath;
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                showStatus('Upload failed: ' + error.message, 'error');
+                throw error;
+            }
+        }
+
+        async function compressFiles() {
+            if (selectedFiles.length === 0) {
+                showStatus('Please select files to compress', 'error');
+                return;
+            }
+
+            const outputName = document.getElementById('output-name').value;
+            const level = parseInt(document.getElementById('compression-level').value);
+            
+            // Generate output name if not provided
+            let finalOutputName = outputName;
+            if (!finalOutputName) {
+                if (selectedFiles.length === 1) {
+                    const baseName = selectedFiles[0].name.split('.')[0];
+                    finalOutputName = baseName;
+                } else {
+                    finalOutputName = 'archive';
+                }
+            }
+
+            const compressBtn = document.getElementById('compress-btn');
+            compressBtn.disabled = true;
+            compressBtn.innerHTML = '<span class="loading-spinner"></span> Compressing...';
+            
+            showProgress();
+            showStatus('Uploading files to server...', 'success');
+
+            try {
+                // First upload files to server
+                const filePaths = await uploadFiles();
+                
+                // Then compress the uploaded files
+                const response = await fetch('/api/compress', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        files: filePaths,
+                        output: finalOutputName,
+                        level: level
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus(result.message, 'success');
+                    showCompressionStats(result.data);
+                    
+                    // Store the output file path for download
+                    lastCompressedFile = result.data.outputFile;
+                    
+                    // Show download button
+                    document.getElementById('download-btn').style.display = 'inline-block';
+                    
+                    // Auto-download the file
+                    downloadCompressedFile();
+                } else {
+                    showStatus(result.message, 'error');
+                }
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+            } finally {
+                compressBtn.disabled = false;
+                compressBtn.innerHTML = '🗜️ Compress Files';
+                hideProgress();
+            }
+        }
+
+        function downloadCompressedFile() {
+            if (!lastCompressedFile) {
+                showStatus('No compressed file available for download', 'error');
+                return;
+            }
+
+            // Create a download link and trigger it
+            const downloadLink = document.createElement('a');
+            downloadLink.href = `/api/download?file=${encodeURIComponent(lastCompressedFile)}`;
+            downloadLink.download = lastCompressedFile.split('/').pop() || 'compressed.zst';
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+            
+            showStatus('Download started automatically', 'success');
+        }
+
+        function downloadExtractedFiles() {
+            if (!lastExtractedDir) {
+                showStatus('No extracted files available for download', 'error');
+                return;
+            }
+
+            // Create a download link and trigger it
+            const downloadLink = document.createElement('a');
+            downloadLink.href = `/api/download-extracted?dir=${encodeURIComponent(lastExtractedDir)}`;
+            downloadLink.download = lastExtractedDir.split('/').pop() || 'extracted.zip';
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+            
+            showStatus('Download started', 'success');
+        }
+
+        async function decompressArchive() {
+            if (!selectedArchive) {
+                showStatus('Please select an archive to decompress', 'error');
+                return;
+            }
+
+            const decompressBtn = document.getElementById('decompress-btn');
+            decompressBtn.disabled = true;
+            decompressBtn.innerHTML = '<span class="loading-spinner"></span> Uploading...';
+            
+            showProgress();
+            showStatus('Uploading archive to server...', 'success');
+
+            try {
+                // First upload the archive to server
+                const archivePath = await uploadArchive();
+                
+                const extractDir = document.getElementById('extract-dir').value;
+                
+                // Generate output directory if not provided
+                let finalExtractDir = extractDir;
+                if (!finalExtractDir) {
+                    const baseName = selectedArchive.name.replace('.zst', '');
+                    finalExtractDir = baseName.replace(/[^a-zA-Z0-9_-]/g, '_') + '_extracted';
+                }
+                
+                // Further sanitize to remove any invalid characters
+                finalExtractDir = finalExtractDir.replace(/[<>:"|?*]/g, '_');
+                
+                decompressBtn.innerHTML = '<span class="loading-spinner"></span> Extracting...';
+
+                const response = await fetch('/api/decompress', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        archive: archivePath,
+                        outputDir: finalExtractDir
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus(result.message, 'success');
+                    showDecompressionStats(result.data);
+                    
+                    // Store the output directory for download
+                    lastExtractedDir = result.data.outputDir;
+                    
+                    // Show download button
+                    document.getElementById('download-extracted-btn').style.display = 'inline-block';
+                } else {
+                    showStatus(result.message, 'error');
+                }
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+            } finally {
+                decompressBtn.disabled = false;
+                decompressBtn.innerHTML = '📂 Extract Archive';
+                hideProgress();
+            }
+        }
+
+        function showProgress() {
+            document.getElementById('progress-container').style.display = 'block';
+            // Simulate progress for better UX
+            let progress = 0;
+            const progressFill = document.getElementById('progress-fill');
+            
+            const interval = setInterval(() => {
+                progress += Math.random() * 10;
+                if (progress > 90) progress = 90;
+                progressFill.style.width = progress + '%';
+            }, 200);
+            
+            // Store interval ID to clear later
+            window.progressInterval = interval;
+        }
+
+        function hideProgress() {
+            if (window.progressInterval) {
+                clearInterval(window.progressInterval);
+            }
+            document.getElementById('progress-fill').style.width = '100%';
+            setTimeout(() => {
+                document.getElementById('progress-container').style.display = 'none';
+                document.getElementById('progress-fill').style.width = '0%';
+            }, 1000);
+        }
+
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+        }
+
+        function hideStatus() {
+            document.getElementById('status').style.display = 'none';
+        }
+
+        function showCompressionStats(stats) {
+            const statsContainer = document.getElementById('stats-container');
+            const statsDiv = document.getElementById('stats');
+            
+            statsDiv.innerHTML = `
+                <div class="stat-card">
+                    <h4>Original Size</h4>
+                    <div class="value">${formatSize(stats.originalSize)}</div>
+                </div>
+                <div class="stat-card">
+                    <h4>Compressed Size</h4>
+                    <div class="value">${formatSize(stats.compressedSize)}</div>
+                </div>
+                <div class="stat-card">
+                    <h4>Compression Ratio</h4>
+                    <div class="value">${stats.compressionRatio.toFixed(1)}%</div>
+                </div>
+                <div class="stat-card">
+                    <h4>Time Taken</h4>
+                    <div class="value">${stats.duration}</div>
+                </div>
+                <div class="stat-card">
+                    <h4>Output File</h4>
+                    <div class="value" style="font-size: 1.2rem;">${stats.outputFile.split('/').pop()}</div>
+                </div>
+            `;
+            
+            statsContainer.style.display = 'block';
+        }
+
+        function showDecompressionStats(stats) {
+            const statsContainer = document.getElementById('stats-container');
+            const statsDiv = document.getElementById('stats');
+            
+            statsDiv.innerHTML = `
+                <div class="stat-card">
+                    <h4>Extracted Files</h4>
+                    <div class="value">${stats.extractedFiles}</div>
+                </div>
+                <div class="stat-card">
+                    <h4>Output Directory</h4>
+                    <div class="value" style="font-size: 1.2rem;">${stats.outputDir}</div>
+                </div>
+            `;
+            
+            statsContainer.style.display = 'block';
+        }
+
+        function hideStats() {
+            document.getElementById('stats-container').style.display = 'none';
+        }
+
+        function formatSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', init);
+        
+        // Set up click handlers for file browsers
+        document.getElementById('compress-file-browser').addEventListener('click', selectFiles);
+        document.getElementById('decompress-file-browser').addEventListener('click', selectArchive);
+    </script>
+</body>
+</html>
